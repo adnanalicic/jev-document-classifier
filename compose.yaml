@@ -1,0 +1,55 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai}
+      JEV_MODEL: ${JEV_MODEL:-typesafe/jev-1.13}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-eng+deu}
+      SAME_DOCUMENT_THRESHOLD: ${SAME_DOCUMENT_THRESHOLD:-0.75}
+    networks:
+      - jev-net
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks:
+      - jev-net
+    restart: unless-stopped
+
+  benchmark:
+    profiles: ["benchmark"]
+    build:
+      context: ./benchmark
+    depends_on:
+      - backend
+    networks:
+      - jev-net
+    volumes:
+      - benchmark-data:/workspace/benchmark/data
+      - benchmark-out:/workspace/benchmark/out
+    command:
+      - sh
+      - -lc
+      - >
+        python download_strata_sample.py &&
+        python generate_stacks.py
+        --stacks ${BENCHMARK_STACKS:-8}
+        --documents-per-stack ${BENCHMARK_DOCUMENTS_PER_STACK:-4}
+        --seed ${BENCHMARK_SEED:-42}
+        --mode ${BENCHMARK_MODE:-mixed} &&
+        python evaluate.py
+        --api http://backend:8080/api/classifications
+
+networks:
+  jev-net:
+
+volumes:
+  benchmark-data:
+  benchmark-out:
