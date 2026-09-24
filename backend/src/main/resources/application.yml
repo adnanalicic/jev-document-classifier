@@ -14,5 +14,9 @@ jev:
   base-url: ${JEV_BASE_URL:https://api.typesafe.ai}
   model: ${JEV_MODEL:jev-latest}
 
+ocr:
+  tesseract-command: ${OCR_TESSERACT_COMMAND:tesseract}
+  languages: ${OCR_LANGUAGES:eng+deu}
+
 classification:
   same-document-threshold: ${SAME_DOCUMENT_THRESHOLD:0.75}
