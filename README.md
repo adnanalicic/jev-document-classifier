@@ -1,72 +1,128 @@
 # Jev Document Classifier
 
-Prototype for classifying and grouping mixed insurance-document pages with the Jev AI model.
+Prototype for classifying and grouping mixed insurance-document pages with the Jev decision model.
 
-## Goal
+## Architecture
 
-A user uploads PDFs/images containing a mix of logical insurance documents. The backend:
+The default runtime is fully containerized with Docker Compose:
 
-1. expands uploads into individual pages,
-2. extracts text locally with PDFBox and Tesseract OCR fallback,
-3. asks Jev for the page document type and whether adjacent pages belong together,
-4. groups pages into logical documents,
-5. returns the classified groups to the React UI.
+```text
+Browser :3000
+    |
+    v
+nginx / React
+    |
+    | /api
+    v
+Spring Boot + PDFBox + local Tesseract OCR
+    |
+    v
+OpenRouter Decisions API -> TypeSafe Jev
 
-## Stack
-
-- Java 25
-- Spring Boot 4.1.1
-- Apache PDFBox 3.0.8
-- Tesseract OCR (local, optional fallback)
-- TypeSafe Jev API
-- React 19.3 + Vite 8.1
-
-## Jev configuration
-
-Create an API key in TypeSafe and export it before starting the backend:
-
-```bash
-export JEV_API_KEY=your_key
+Python Strata benchmark
+    |
+    +---- internal Docker network ----> Spring Boot
 ```
 
-The backend calls `https://api.typesafe.ai/v1/systemone` using model alias `jev-latest`.
+The host needs Docker (Docker Desktop, Colima, Rancher Desktop, Podman with Compose compatibility, etc.). Java, Maven, Node, Python, nginx and Tesseract run inside containers.
 
-If no API key is configured, the app starts in a deterministic heuristic fallback mode so the UI and grouping flow can still be developed locally.
+## Quick start
 
-## Local development
-
-### Backend
-
-Requirements: JDK 25, Maven, and optionally Tesseract.
+1. Copy the environment template:
 
 ```bash
-cd backend
-mvn spring-boot:run
+cp .env.example .env
 ```
 
-Backend: http://localhost:8080
+2. Put your OpenRouter key in `.env`:
 
-### Frontend
+```text
+OPENROUTER_API_KEY=sk-or-v1-...
+```
 
-Requirements: Node.js 24+.
+3. Start the application:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose up --build -d
 ```
 
-Frontend: http://localhost:5173
+Open:
 
-The Vite dev server proxies `/api` to Spring Boot.
+```text
+http://localhost:3000
+```
 
-## API
+Only the frontend/nginx service is published to the host. The Spring Boot backend and benchmark communicate on the internal Docker network.
 
-`POST /api/classifications`
+Stop everything:
 
-Multipart form field: `files` (one or more PDF/JPG/PNG files, in page order).
+```bash
+docker compose down
+```
 
-Response contains logical document groups, their predicted type/confidence, and page-level boundary probabilities.
+## Jev through OpenRouter
+
+The backend uses OpenRouter's Decisions API:
+
+```text
+POST https://openrouter.ai/api/alpha/decisions
+```
+
+Default model:
+
+```text
+typesafe/jev-1.13
+```
+
+It is pinned by default so benchmark runs are reproducible. To follow the newest Jev model instead:
+
+```bash
+JEV_MODEL=~typesafe/jev-latest
+```
+
+If `OPENROUTER_API_KEY` is empty, the backend uses the deterministic heuristic fallback so the upload/UI flow can still be tested offline.
+
+## Local OCR
+
+Tesseract is installed inside the backend image together with English and German language data. Nothing needs to be installed on the host.
+
+PDFBox first tries embedded PDF text. Pages with too little embedded text and uploaded images are OCRed locally inside the backend container.
+
+## Strata benchmark
+
+The Python benchmark also runs in Docker. It downloads the supported synthetic Strata sample, verifies SHA-256 values, generates mixed-document stacks, calls the backend, and computes:
+
+- boundary precision / recall / F1
+- page classification accuracy
+- exact document reconstruction rate
+- exact stack reconstruction rate
+- type accuracy on exactly reconstructed documents
+
+Run:
+
+```bash
+docker compose --profile benchmark run --rm benchmark
+```
+
+or:
+
+```bash
+make benchmark
+```
+
+The downloaded corpus and generated outputs live in Docker named volumes rather than your host filesystem.
+
+Inspect the benchmark container interactively:
+
+```bash
+make benchmark-shell
+```
+
+## Services
+
+- `frontend`: React compiled to static assets and served by nginx.
+- `backend`: Java 25 / Spring Boot / PDFBox / Tesseract / OpenRouter Jev client.
+- `benchmark`: Python 3.13 Strata downloader, stack generator and evaluator.
 
 ## MVP document types
 
@@ -82,24 +138,6 @@ Response contains logical document groups, their predicted type/confidence, and 
 - IDENTITY_DOCUMENT
 - OTHER
 
-## Next steps
+## Development without Docker
 
-- Add Strata Insurance Corpus test-stack generator.
-- Add merged-PDF download for each logical document.
-- Add benchmark metrics: boundary precision/recall/F1, type accuracy, exact reconstruction.
-- Add a comparison runner for rules vs Jev vs LLM.
-
-
-## Strata benchmark
-
-A reproducible benchmark harness is available under `benchmark/`.
-
-It downloads the supported subset of the synthetic Strata Insurance Corpus sample, verifies SHA-256 checksums, generates deterministic mixed multi-document PDFs with exact page-level ground truth, calls the local classifier API, and reports:
-
-- boundary precision / recall / F1
-- page classification accuracy
-- exact document reconstruction rate
-- exact stack reconstruction rate
-- type accuracy on exactly reconstructed documents
-
-See [benchmark/README.md](benchmark/README.md) for commands.
+Running Java/Node/Python directly on the host is still possible, but is no longer the recommended path. See `benchmark/README.md` for the benchmark scripts.
