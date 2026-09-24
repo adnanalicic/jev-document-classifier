@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: jev-document-classifier
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 100MB
+
+server:
+  port: 8080
+
+jev:
+  api-key: ${JEV_API_KEY:}
+  base-url: ${JEV_BASE_URL:https://api.typesafe.ai}
+  model: ${JEV_MODEL:jev-latest}
+
+classification:
+  same-document-threshold: ${SAME_DOCUMENT_THRESHOLD:0.75}
