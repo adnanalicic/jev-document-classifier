@@ -42,3 +42,10 @@ jobs:
           python-version: "3.13"
       - run: pip install -r benchmark/requirements.txt
       - run: python -m py_compile benchmark/*.py
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config
+      - run: docker compose build backend frontend benchmark
