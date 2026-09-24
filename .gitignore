@@ -22,3 +22,8 @@ frontend/dist/
 # Runtime
 *.log
 tmp/
+
+# Benchmark generated data
+benchmark/data/
+benchmark/out/
+.venv/
