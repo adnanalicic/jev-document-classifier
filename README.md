@@ -88,3 +88,18 @@ Response contains logical document groups, their predicted type/confidence, and 
 - Add merged-PDF download for each logical document.
 - Add benchmark metrics: boundary precision/recall/F1, type accuracy, exact reconstruction.
 - Add a comparison runner for rules vs Jev vs LLM.
+
+
+## Strata benchmark
+
+A reproducible benchmark harness is available under `benchmark/`.
+
+It downloads the supported subset of the synthetic Strata Insurance Corpus sample, verifies SHA-256 checksums, generates deterministic mixed multi-document PDFs with exact page-level ground truth, calls the local classifier API, and reports:
+
+- boundary precision / recall / F1
+- page classification accuracy
+- exact document reconstruction rate
+- exact stack reconstruction rate
+- type accuracy on exactly reconstructed documents
+
+See [benchmark/README.md](benchmark/README.md) for commands.
