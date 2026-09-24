@@ -8,28 +8,26 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 @Component
 public class JevDecisionEngine implements DecisionEngine {
 
     private final String apiKey;
-    private final String baseUrl;
     private final String model;
     private final RestClient restClient;
 
     public JevDecisionEngine(
             @Value("${jev.api-key:}") String apiKey,
-            @Value("${jev.base-url:https://api.typesafe.ai}") String baseUrl,
-            @Value("${jev.model:jev-latest}") String model
+            @Value("${jev.base-url:https://openrouter.ai}") String baseUrl,
+            @Value("${jev.model:typesafe/jev-1.13}") String model
     ) {
         this.apiKey = apiKey;
-        this.baseUrl = baseUrl;
         this.model = model;
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader("X-OpenRouter-Title", "Jev Document Classifier")
                 .build();
     }
 
@@ -40,22 +38,25 @@ public class JevDecisionEngine implements DecisionEngine {
     @Override
     @SuppressWarnings("unchecked")
     public ClassificationDecision classify(String text) {
+        Map<String, String> criteria = new LinkedHashMap<>();
+        criteria.put("POLICY", "Insurance policy contract, declarations, schedule, certificate, or endorsement.");
+        criteria.put("CLAIM_FORM", "First notification of loss, accident statement, or other claim submission form.");
+        criteria.put("INVOICE", "Invoice or bill requesting payment.");
+        criteria.put("MEDICAL_REPORT", "Medical, clinical, diagnostic, treatment, or patient report.");
+        criteria.put("ADJUSTER_REPORT", "Loss adjuster, surveyor, assessor, or claims investigation report.");
+        criteria.put("ESTIMATE", "Repair, damage, replacement, or cost estimate/quotation.");
+        criteria.put("SETTLEMENT_LETTER", "Letter communicating claim settlement, payment, or settlement terms.");
+        criteria.put("DENIAL_LETTER", "Letter denying, rejecting, or declining an insurance claim.");
+        criteria.put("CORRESPONDENCE", "General insurance-related letter or correspondence not covered by another class.");
+        criteria.put("IDENTITY_DOCUMENT", "Identity card, passport, driver's licence, or similar identity document.");
+        criteria.put("OTHER", "None of the listed insurance document types applies.");
+
         Map<String, Object> question = new LinkedHashMap<>();
         question.put("type", "choice");
-        question.put("instructions", "Classify this insurance document page by its primary document type.");
-        question.put("choices", List.of(
-                "POLICY",
-                "CLAIM_FORM",
-                "INVOICE",
-                "MEDICAL_REPORT",
-                "ADJUSTER_REPORT",
-                "ESTIMATE",
-                "SETTLEMENT_LETTER",
-                "DENIAL_LETTER",
-                "CORRESPONDENCE",
-                "IDENTITY_DOCUMENT",
-                "OTHER"
-        ));
+        question.put("instructions",
+                "Classify this page by its primary insurance document type. " +
+                "Use the content and purpose of the page, not just isolated keywords.");
+        question.put("criteria", criteria);
 
         Map<String, Object> response = call(Map.of(
                 "model", model,
@@ -65,14 +66,14 @@ public class JevDecisionEngine implements DecisionEngine {
 
         Object answer = extractAnswer(response, "document_type");
         if (answer instanceof Map<?, ?> answerMap) {
-            String selected = firstString(answerMap, "choice", "value", "answer", "selected");
-            double confidence = firstDouble(answerMap, 0.5, "confidence", "probability", "score");
+            String selected = firstString(answerMap, "choice");
+            double confidence = firstDouble(answerMap, 0.5, "confidence");
 
             if (selected != null) {
                 try {
                     return new ClassificationDecision(DocumentType.valueOf(selected), confidence);
                 } catch (IllegalArgumentException ignored) {
-                    // handled below
+                    // Fall through to OTHER.
                 }
             }
         }
@@ -86,7 +87,9 @@ public class JevDecisionEngine implements DecisionEngine {
         question.put("type", "noul");
         question.put("instructions",
                 "Do these two adjacent pages belong to the same logical document? " +
-                "The same policy or claim number alone is not sufficient; consider document boundaries, headers, page numbering, and semantic continuation.");
+                "The same policy number, claim number, customer, or insurer alone is not sufficient. " +
+                "Consider page numbering, headers, signatures, topic continuity, document purpose, " +
+                "and whether the current page starts a distinct document.");
 
         Map<String, Object> response = call(Map.of(
                 "model", model,
@@ -98,12 +101,8 @@ public class JevDecisionEngine implements DecisionEngine {
         ));
 
         Object answer = extractAnswer(response, "same_document");
-        if (answer instanceof Number n) {
-            return clamp(n.doubleValue());
-        }
         if (answer instanceof Map<?, ?> answerMap) {
-            return clamp(firstDouble(answerMap, 0.5,
-                    "probability", "yes_probability", "confidence", "score"));
+            return clamp(firstDouble(answerMap, 0.5, "noul"));
         }
 
         return 0.5;
@@ -111,16 +110,17 @@ public class JevDecisionEngine implements DecisionEngine {
 
     @Override
     public String name() {
-        return "jev";
+        return "jev-openrouter:" + model;
     }
 
+    @SuppressWarnings("unchecked")
     private Map<String, Object> call(Map<String, Object> payload) {
         if (!configured()) {
-            throw new IllegalStateException("JEV_API_KEY is not configured");
+            throw new IllegalStateException("OPENROUTER_API_KEY is not configured");
         }
 
         return restClient.post()
-                .uri("/v1/systemone")
+                .uri("/api/alpha/decisions")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .body(payload)
                 .retrieve()
@@ -137,7 +137,7 @@ public class JevDecisionEngine implements DecisionEngine {
             return map.get(questionName);
         }
 
-        return response.get(questionName);
+        return null;
     }
 
     private String firstString(Map<?, ?> map, String... keys) {
